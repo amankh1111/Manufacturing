@@ -1,0 +1,113 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime as dt
+import cx_Oracle
+import os
+import sys
+import smtplib
+from logger_base import logger_base
+
+class logger():
+    def __init__(self):
+        self.list = []
+        self.n = 0
+        self.prgm_err = False
+        self.prgm_err_msg = None
+        self.failed_min = 0
+        self.ip_add='172.19.1.144'
+        self.conn = cx_Oracle.connect('AAM','hdquowel',
+                                      cx_Oracle.makedsn('172.31.53.12','1521',service_name='BIDWDEV.aam.net'))
+        self.cursor = self.conn.cursor()
+        self.command = """insert into AAM_ETL_LOGS(RUN_ID,STEP,IP_ADD,PROCESS_NAME,LOG_INFO,START_TIMESTAMP,FINISH_TIMESTAMP,RESULT,MESSAGE,RUN_TIME) 
+                        values (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)"""
+        self.run_id = 0
+    
+    
+    def update_error(self, error = ''):
+        if self.prgm_err==False:
+            if error != '':
+                self.prgm_err = True
+                self.prgm_err_msg = error
+                if self.failed_min==0:
+                    self.failed_min = self.n
+    
+    def run_id_update(self):
+        self.cursor.execute("select max(run_id) from AAM_ETL_LOGS")
+        for row in self.cursor:
+            x = row[0]
+        self.run_id = x+1
+    
+    def upload(self, RUN_ID,n,IP_ADD,PROCESS_NAME,LOG_INFO,START_TIMESTAMP,FINISH_TIMESTAMP,RESULT,MESSAGE,RUN_TIME):
+        self.cursor.execute(self.command, (int(RUN_ID),int(n),str(IP_ADD),str(PROCESS_NAME),str(LOG_INFO),START_TIMESTAMP,
+                                           FINISH_TIMESTAMP,str(RESULT),str(MESSAGE),float(RUN_TIME)))
+        self.conn.commit()
+       
+    def send_email(self, email_to=[]):
+        email_from = 'DoNotReply@aam.com'
+#         password = "**PWD**"
+        message = """\
+                    Subject: Failed! %s \n
+                    Run_ID - %d
+                    Process_name - %s
+                    Result - %s
+                    Message - %s
+                    """ % (self.list[self.n].process_name, self.list[self.n].run_id, self.list[self.n].process_name,
+                           self.list[self.n].result, self.list[self.n].message)
+        server = smtplib.SMTP('SMTP.aam.net', 25)
+#         server.ehlo()
+#         server.starttls()
+#         server.login(email_from,password)
+        server.sendmail(email_from, email_to, message)
+        server.quit()
+     
+    def create_df(self): 
+        dic = {'run_id':[],'process_name':[],'log_info':[],'start_timestamp':[],
+               'finish_timestamp':[],'result':[],'message':[],'run_time':[]}
+        for i in range(self.n+1):
+            for name in dic:
+                dic[name].append(eval('self.list['+str(i)+'].'+name))
+        return pd.DataFrame(dic)
+            
+    def begin(self, process_name = "Job_Name"):
+        self.run_id_update()
+        self.n = 0 
+        self.list.append(logger_base())
+        self.list[self.n].start(run_id = self.run_id, process_name = process_name, log_info = "Started")
+        self.upload(self.list[self.n].run_id, self.n,self.ip_add,self.list[self.n].process_name, self.list[self.n].log_info,
+                    self.list[self.n].start_timestamp,self.list[self.n].finish_timestamp, self.list[self.n].result,
+                    self.list[self.n].message, self.list[self.n].run_time)
+        
+        
+    def start(self, log_info):
+        if self.prgm_err==False:
+            if self.n !=0:
+                self.list[self.n].finish()
+                self.upload(self.list[self.n].run_id, self.n,self.ip_add,self.list[self.n].process_name, self.list[self.n].log_info,
+                            self.list[self.n].start_timestamp,self.list[self.n].finish_timestamp, self.list[self.n].result,
+                            self.list[self.n].message, self.list[self.n].run_time)
+            self.n=self.n+1
+            self.list.append(logger_base())
+            self.list[self.n].start(run_id = self.run_id, process_name = self.list[0].process_name, log_info = log_info)
+        
+        
+    def end(self, result = None, message = None, email_alert = False, email_to=[]):
+        self.list[self.n].finish()
+        self.upload(self.list[self.n].run_id, self.n,self.ip_add,self.list[self.n].process_name, self.list[self.n].log_info,
+                        self.list[self.n].start_timestamp,self.list[self.n].finish_timestamp, self.list[self.n].result,
+                        self.prgm_err_msg, self.list[self.n].run_time)
+        self.n=self.n+1
+        self.list.append(logger_base())
+        
+        if self.prgm_err == True:
+            self.list[self.n].start(run_id = self.run_id, process_name = self.list[0].process_name, log_info = "End", result = "Failed", 
+                                message = self.prgm_err_msg)
+            if email_alert == True:
+                self.send_email(email_to=email_to)
+        else:
+            self.list[self.n].start(run_id = self.run_id, process_name = self.list[0].process_name, log_info = "End", result = "Success", 
+                                message = "Successfully Completed")
+        self.upload(self.list[self.n].run_id, self.n,self.ip_add,self.list[self.n].process_name, self.list[self.n].log_info,
+                    self.list[self.n].start_timestamp,self.list[self.n].finish_timestamp, self.list[self.n].result,
+                    self.list[self.n].message, self.list[self.n].run_time)
+
+            

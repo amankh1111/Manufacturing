@@ -1,0 +1,250 @@
+import pyodbc  
+import datetime, time
+from snowflake.connector import connect
+import csv
+import shutil, os
+import boto3
+import cx_Oracle
+from boto3.s3.transfer import S3Transfer
+from datetime import datetime as dt
+import os.path
+from os import path
+import subprocess
+import pandas as pd
+from datetime import date
+import sys
+import json
+from pytz import timezone
+
+####################################################################################################
+import sys
+sys.path.append("/home/ec2-user/ERROR_LOGGER/ETL_LOGGER")
+from logger import logger
+
+Logger = logger()
+Logger.begin(process_name = str('CAD_CAXRPT_DISK_USAGE_USER'+str(sys.argv[3][44:])))
+try:
+####################################################################################################
+####################################################################################################
+    Logger.start(log_info = 'Variables Prep')
+####################################################################################################
+    now = datetime.datetime.now()
+    print ("start time: ")
+
+    Curr_date_time = datetime.datetime.now()
+    Curr_date_time_ms = Curr_date_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] 
+
+    #today = date.today()
+    today = datetime.datetime.now(timezone('EST')).date()
+
+    print('current date time :')
+    print(Curr_date_time_ms)
+    print('current date :')
+    print(today)
+
+
+    Roll_back = 'FALSE'
+    INPUT_APP_TYPE_SEQ=[]
+
+    # --------------------------Parameter values----------#
+
+    FILE_NAME_INITIAL = str(sys.argv[1])
+    FILE_NAME_POSTFIX = str(sys.argv[2])
+    source = str(sys.argv[3])
+    destination = str(sys.argv[4])
+    APP_TYPE_OCCUR = int(sys.argv[5])
+    par_seq = int(sys.argv[6])
+
+
+    for i_occur in range(APP_TYPE_OCCUR):
+        par_seq=par_seq+1
+        APP_TYPE_DICT = json.loads(sys.argv[par_seq])
+        INPUT_APP_TYPE_SEQ.append(APP_TYPE_DICT)
+
+
+    print("APP_TYPE_OCCUR:",APP_TYPE_OCCUR)
+    print("FILE_NAME_INITIAL:",FILE_NAME_INITIAL)
+    print("type(INPUT_APP_TYPE_SEQ):",type(INPUT_APP_TYPE_SEQ))
+    print("INPUT_APP_TYPE_SEQ:",INPUT_APP_TYPE_SEQ)
+    print("FILE_NAME_POSTFIX:",FILE_NAME_POSTFIX)
+    print("source:",source)
+    print("destination:",destination)
+
+
+    input_columns = ['DATA_CAPTURE_DATE','TOTAL_DISK_SIZE','TOTAL_DISK_USED','TOTAL_DISK_AVAILABLE','USE_PERCENTAGE','FILE_NAME','FILE_TYPE','OPERATION_TYPE','APP_TYPE','DISK_USED_IN_GB','DIRECTORY_NAME']
+
+    # ------------------- Removing the files from the directory and stage, The path will be seperate for seperate source paths.  ---------------
+    if path.exists(destination):
+        shutil.rmtree(destination)
+        print (" Remove Existing folder:",destination)
+
+    os.mkdir(destination)                   
+
+
+
+    #----- Queries-------------------
+
+    DELETE_STG_DATA = """DELETE FROM AAM_OPERATIONS_DISK_USGE_USER_STG"""
+
+
+    #---------- Megging Operations staging table with final Operations target table --------------
+
+    MRG_STG_FACT = """merge into AAM_OPERATIONS_DISK_USGE_USER f using AAM_OPERATIONS_DISK_USGE_USER_STG stg 
+    ON  ( f.DATA_CAPTURE_DATE = stg.DATA_CAPTURE_DATE 
+     AND  f.FILE_NAME  =  stg.FILE_NAME 
+     AND f.DIRECTORY_NAME = stg.DIRECTORY_NAME 
+     AND f.FILE_TYPE = stg.FILE_TYPE)
+    when not matched then insert
+    (DATA_CAPTURE_DATE    
+     ,TOTAL_DISK_SIZE      
+     ,TOTAL_DISK_USED      
+     ,TOTAL_DISK_AVAILABLE 
+     ,USE_PERCENTAGE       
+     ,FILE_NAME            
+     ,FILE_TYPE            
+     ,OPERATION_TYPE       
+     ,APP_TYPE             
+     ,DISK_USED_IN_GB      
+     ,DIRECTORY_NAME       
+     ,CREATED_BY           
+     ,MODIFIED_DATE        
+     ,MODIFIED_BY
+    )
+    VALUES
+    (stg.DATA_CAPTURE_DATE    
+     ,stg.TOTAL_DISK_SIZE      
+     ,stg.TOTAL_DISK_USED      
+     ,stg.TOTAL_DISK_AVAILABLE 
+     ,stg.USE_PERCENTAGE       
+     ,stg.FILE_NAME            
+     ,stg.FILE_TYPE            
+     ,stg.OPERATION_TYPE       
+     ,stg.APP_TYPE             
+     ,stg.DISK_USED_IN_GB      
+     ,stg.DIRECTORY_NAME       
+     ,'Back End Job'
+     ,SYSDATE
+     ,'Back End Job'
+    )
+    """
+
+
+    #----------------
+    Logger.start(log_info = 'Retrive Source')
+
+
+    INPUT_APP_TYPE_SEQ=list(INPUT_APP_TYPE_SEQ)
+
+    print("INPUT_APP_TYPE_SEQ:",INPUT_APP_TYPE_SEQ)
+
+
+    for APP_TYPE_SEQ_row in INPUT_APP_TYPE_SEQ:
+        print("APP_TYPE_SEQ_row:",APP_TYPE_SEQ_row)
+     #   print(APP_TYPE_SEQ_row["APP_TYPE"]) 
+        for seq in APP_TYPE_SEQ_row["SEQUENCE"]:
+
+            print("seq:",seq)
+            
+            if seq=='':
+                f_name=str(FILE_NAME_INITIAL)+"."+str(APP_TYPE_SEQ_row["APP_TYPE"])+"."+str(today)+"."+FILE_NAME_POSTFIX
+            else:
+                f_name=str(FILE_NAME_INITIAL)+"."+str(APP_TYPE_SEQ_row["APP_TYPE"])+str(seq)+"."+str(today)+"."+FILE_NAME_POSTFIX
+
+            
+            source_path = source+f_name
+
+            print("f_name:",f_name)
+            print("source_path:",source_path)
+
+            process = subprocess.Popen(["sudo","scp","-i","/home/caxrpt/.ssh/id_rsa",source_path,destination])
+            sts = os.waitpid(process.pid, 0)
+
+            
+
+    ########---------------Writting to Oracle---------------########
+    Logger.start(log_info = 'Write Oracle')
+
+
+    tns_dsn = cx_Oracle.makedsn('172.28.87.15','1525','BIDWPRD')
+    con_ORACLE = cx_Oracle.connect('AAM','hdquowel',dsn=tns_dsn)
+
+    cs_ORACLE = con_ORACLE.cursor()
+
+####################################################################################################
+    Logger.start(log_info = 'Sample Log 1')
+####################################################################################################
+
+    try:
+
+        cs_ORACLE.execute("select * from ABC")
+        cs_ORACLE.execute(DELETE_STG_DATA)        
+
+        for filename in os.listdir(destination):
+
+            file_path = os.path.join(destination, filename)
+            print("file_path:",file_path)
+            if os.stat(file_path).st_size > 0:
+
+
+    #            if filename!='CAE_usage_log_user.caehome3.'+str(today)+'.new':      #---- testing and below lines make it 1 tabb forward once remove this
+
+                data = pd.read_csv(file_path,sep=',',header=None,names=input_columns)
+
+                for index,row in data.iterrows():
+
+
+                    sql = "insert into AAM_OPERATIONS_DISK_USGE_USER_STG (DATA_CAPTURE_DATE,TOTAL_DISK_SIZE,TOTAL_DISK_USED,TOTAL_DISK_AVAILABLE,USE_PERCENTAGE,FILE_NAME,FILE_TYPE,OPERATION_TYPE,APP_TYPE,DISK_USED_IN_GB,DIRECTORY_NAME) values("+"TO_DATE('"+str(row['DATA_CAPTURE_DATE'])+"','yyyy-mm-dd')"+","+str(row['TOTAL_DISK_SIZE'])+","+str(row['TOTAL_DISK_USED'])+","+str(row['TOTAL_DISK_AVAILABLE'])+",'"+str(row['USE_PERCENTAGE'])+"','"+str(row['FILE_NAME'])+"','"+str(row['FILE_TYPE'])+"','"+str(row['OPERATION_TYPE'])+"','"+str(row['APP_TYPE'])+"',"+str(row['DISK_USED_IN_GB'])+",'"+str(row['DIRECTORY_NAME'])+"')"
+
+    #                print("sql:",sql) # comment this
+
+                    INSERT_TABLE = cs_ORACLE.execute(sql)
+                
+
+        
+        cs_ORACLE.execute(MRG_STG_FACT)
+
+
+
+#    except cx_Oracle.DatabaseError as e:
+    except Exception as e:
+        Logger.update_error(error = e)
+    
+#        error, = e.args
+#        print(error.code)
+#        print(error.message)
+#        print(error.context)
+        
+        print ("Error while connecting to Oracle server:")
+
+        Roll_back = 'TRUE'
+        con_ORACLE.rollback()
+
+    finally:
+
+
+        if Roll_back == 'TRUE':
+            con_ORACLE.rollback()
+            cs_ORACLE.close()
+            con_ORACLE.close()
+        else:
+            con_ORACLE.commit()
+            cs_ORACLE.close()
+            con_ORACLE.close()
+
+        now = datetime.datetime.now()
+        print ("end time: ")
+        print (now.strftime("%Y-%m-%d %H:%M:%S"))
+####################################################################################################
+    Logger.start(log_info = 'Sample Log 2')
+####################################################################################################
+    print("Trial Comment")
+        
+####################################################################################################
+except Exception as e:
+    Logger.update_error(error=e)  
+finally:
+    Logger.end(email_alert=True, email_to=['Ved.Sonpali@aam.com','Amit.Rustagi@aam.com'])
+####################################################################################################
+
+
+

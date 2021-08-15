@@ -1,0 +1,32 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime as dt
+import cx_Oracle
+import os
+from pytz import timezone
+
+class logger_base():
+    def __init__(self):
+        self.run_id = None
+        self.process_name = None
+        self.log_info = None
+        self.start_timestamp = None
+        self.finish_timestamp = None
+        self.result = None
+        self.message = None 
+        self.run_time = 0 
+    
+    
+    def start(self, run_id = None, process_name=None, log_info=None, result = None, message = None):
+        self.run_id = run_id 
+        self.process_name = process_name
+        self.log_info = log_info
+        self.start_timestamp = dt.now(timezone('EST'))
+        self.message = message
+        self.result = result
+        
+    def finish(self):
+        self.finish_timestamp = dt.now(timezone('EST'))
+        self.run_time = (self.finish_timestamp-self.start_timestamp).total_seconds()
+        
+        

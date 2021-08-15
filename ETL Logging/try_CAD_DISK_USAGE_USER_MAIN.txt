@@ -1,0 +1,112 @@
+import pyodbc  
+import datetime, time
+import csv
+import shutil, os
+import boto3
+from boto3.s3.transfer import S3Transfer
+import os.path
+from os import path
+from datetime import date
+from dateutil.relativedelta import relativedelta
+import psutil
+import time
+import subprocess
+from pytz import timezone
+from dateutil.relativedelta import relativedelta
+
+###Import Logger class. Append path where logger class py file is located if not in the same folder
+import sys
+sys.path.append("/home/ec2-user/ERROR_LOGGER/ETL_LOGGER")
+from logger import logger
+
+###Create logger class object. Put the whole code in try except blocks
+Logger = logger()
+Logger.begin(process_name = 'CAD_DISK_USAGE_USER_MAIN')
+try:
+
+    Logger.start(log_info = 'Variables Prep')
+
+
+    # --------------------------
+    now = datetime.datetime.now()
+    print ("start time CAD_DISK_USAGE_USER_MAIN: ")
+    print (now.strftime("%Y-%m-%d %H:%M:%S"))
+    # --------------------------
+
+
+    now_est = datetime.datetime.now(timezone('EST'))
+    min_time_est = (now_est + relativedelta(hours=-1)).time()
+    max_time_est = (now_est + relativedelta(minutes=15)).time()
+
+    now_cet = datetime.datetime.now(timezone('CET'))
+    min_time_cet = (now_cet + relativedelta(hours=-1)).time()
+    max_time_cet = (now_cet + relativedelta(minutes=15)).time()
+
+    now_gmt = datetime.datetime.now(timezone('GMT'))
+    now_gmt_530 = now_gmt + relativedelta(hours=5,minutes=30)
+    min_time_gmt_530 = (now_gmt + relativedelta(hours=-1)).time()
+    max_time_gmt_530 = (now_gmt + relativedelta(minutes=15)).time()
+
+    print("min_time_est:",min_time_est)
+    print("min_time_cet:",min_time_cet)
+    print("min_time_gmt_530:",min_time_gmt_530)
+
+    print("max_time_est:",max_time_est)
+    print("max_time_cet:",max_time_cet)
+    print("max_time_gmt_530:",max_time_gmt_530)
+
+
+    CURR_TIME_DICT = {}
+
+    CURR_TIME_DICT["EST"]= {}
+    CURR_TIME_DICT["EST"]["MIN"]= min_time_est.strftime('%H:%M:%S.%f')
+    CURR_TIME_DICT["EST"]["MAX"]= max_time_est.strftime('%H:%M:%S.%f')
+
+    CURR_TIME_DICT["CET"]= {}
+    CURR_TIME_DICT["CET"]["MIN"]= min_time_cet.strftime('%H:%M:%S.%f')
+    CURR_TIME_DICT["CET"]["MAX"]= max_time_cet.strftime('%H:%M:%S.%f')
+
+    CURR_TIME_DICT["GMT+530"]= {}
+    CURR_TIME_DICT["GMT+530"]["MIN"]= min_time_gmt_530.strftime('%H:%M:%S.%f')
+    CURR_TIME_DICT["GMT+530"]["MAX"]= max_time_gmt_530.strftime('%H:%M:%S.%f')
+
+    #------------------------------------------------------------------
+    fname_parmtr = "/home/ec2-user/CAD/DISK_USAGE_USER/PARAMETER_FILE/try_PARAMETER_FILE.txt"
+
+    fp_parmtr_READ = open(fname_parmtr, "r")
+    for i, input_parmtr in enumerate(fp_parmtr_READ):
+        Logger.start(log_info = input_parmtr)
+
+        list_parmtr = input_parmtr.rstrip('\n').split ("^")    
+        sch_time= datetime.datetime.strptime(list_parmtr[0].split(",")[0], '%H:%M:%S.%f').time()
+        time_zone = list_parmtr[0].split(",")[1]
+
+        print("sch_time:",sch_time)
+        print("time_zone:",time_zone)
+        
+#        for sch_tz in CURR_TIME_DICT:
+
+        
+
+        list_parmtr_subprcs=list_parmtr[1:].copy()
+        subprocess.Popen(list_parmtr_subprcs)
+
+        time.sleep(5)
+        print("list_parmtr:",list_parmtr_subprcs)
+
+
+    fp_parmtr_READ.close()
+
+    0/0
+    # --------------------------
+    now = datetime.datetime.now()
+    print ("end time CAD_DISK_USAGE_USER_MAIN: ")
+    print (now.strftime("%Y-%m-%d %H:%M:%S"))
+    # --------------------------
+    Logger.start(log_info = 'TEMP')
+    
+    
+except Exception as e:
+    Logger.update_error(error=e)  
+finally:
+    Logger.end(email_alert=True, email_to=['Ved.Sonpali@aam.com','Aman.Khatri@aam.com'])
